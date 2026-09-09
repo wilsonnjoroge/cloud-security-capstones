@@ -2,7 +2,6 @@
 # VPC
 # -----------------------------------------------------------------------------
 
-#tfsec:ignore:aws-vpc-enable-flow-logs:Flow logs are managed centrally by the networking account
 resource "aws_vpc" "capstone" {
   cidr_block           = var.vpc_cidr
   enable_dns_support   = true
