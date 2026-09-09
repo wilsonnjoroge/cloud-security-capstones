@@ -10,7 +10,7 @@ jobs:
     strategy:
       matrix:
         working-directory:
-          - aws/capstone-security/infrastructure
+          - aws/capstone-security/infrastructure/environments/dev
 
     steps:
       - name: Check out code
