@@ -263,3 +263,35 @@ resource "aws_elasticache_subnet_group" "capstone" {
     Tier    = "db"
   }
 }
+
+
+
+resource "aws_iam_role_policy" "vpc_flow_logs" {
+  name = "${var.project_name}-vpc-flow-logs-policy"
+  role = aws_iam_role.vpc_flow_logs.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        # Trailing :* is required — AWS generates flow log stream names
+        # dynamically, so the exact stream ARN can't be known at plan
+        # time. Scoped to this one log group only, not all log groups.
+        # tfsec:ignore:aws-iam-no-policy-wildcards
+        Sid      = "WriteToThisLogGroupOnly"
+        Effect   = "Allow"
+        Action   = ["logs:CreateLogStream", "logs:PutLogEvents"]
+        Resource = "${aws_cloudwatch_log_group.vpc_flow_logs.arn}:*"
+      },
+      {
+        # Describe actions have no resource-level permissions in the
+        # CloudWatch Logs API — Resource "*" is unavoidable here.
+        # tfsec:ignore:aws-iam-no-policy-wildcards
+        Sid      = "DescribeLogGroupsAndStreams"
+        Effect   = "Allow"
+        Action   = ["logs:DescribeLogGroups", "logs:DescribeLogStreams"]
+        Resource = "*"
+      }
+    ]
+  })
+}
