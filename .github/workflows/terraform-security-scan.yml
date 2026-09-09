@@ -2,9 +2,6 @@ name: Terraform Security Scan
 
 on:
   pull_request:
-    # No paths filter here on purpose -- same reasoning as fmt-validate.yml.
-    # If this only triggered on .tf changes, marking it "required" would
-    # leave any non-Terraform PR
 
 jobs:
   tfsec:
@@ -13,7 +10,8 @@ jobs:
     strategy:
       matrix:
         working-directory:
-          - aws-provisions/labs/vpc-lab
+          - aws/capstone-security/infrastructure
+
     steps:
       - name: Check out code
         uses: actions/checkout@8ade135a41bc03ea155e62e844d188df1ea18608
@@ -36,12 +34,6 @@ jobs:
         uses: aquasecurity/tfsec-action@b466648d6e39e7c75324f25d83891162a721f2d6
         with:
           working_directory: ${{ matrix.working-directory }}
-          # Excluded: these three findings are the intentional design of
-          # this lab (public web tier needs 80/443 inbound; the public
-          # subnet is meant to hand out public IPs). Everything else stays
-          # enforced. See vpc-lab/README.md for the architecture rationale.
-          additional_args: >
-            --exclude aws-ec2-no-public-ingress-sgr,aws-ec2-no-public-egress-sgr,aws-ec2-no-public-ip-subnet
 
       - name: No Terraform changes -- nothing to scan
         if: steps.tf-changes.outputs.changed == 'false'
