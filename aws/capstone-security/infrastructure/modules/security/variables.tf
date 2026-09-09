@@ -11,7 +11,6 @@ variable "project_name" {
       "^[a-z][a-z0-9-]{2,20}$",
       var.project_name
     ))
-
     error_message = "project_name must be 3-21 characters, start with a lowercase letter, and contain only lowercase letters, numbers, and hyphens."
   }
 }
@@ -96,7 +95,6 @@ variable "kms_deletion_window_in_days" {
       var.kms_deletion_window_in_days >= 7 &&
       var.kms_deletion_window_in_days <= 30
     )
-
     error_message = "kms_deletion_window_in_days must be between 7 and 30 days."
   }
 }
@@ -110,7 +108,6 @@ variable "ansible_bundle_bucket_arn" {
       "^arn:aws:s3:::[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$",
       var.ansible_bundle_bucket_arn
     ))
-
     error_message = "ansible_bundle_bucket_arn must be a valid S3 bucket ARN."
   }
 }
@@ -125,7 +122,6 @@ variable "application_secret_arns" {
       for arn in var.application_secret_arns :
       can(regex("^arn:aws:secretsmanager:[a-z0-9-]+:[0-9]{12}:secret:.+$", arn))
     ])
-
     error_message = "Every application_secret_arns value must be a valid Secrets Manager secret ARN."
   }
 }

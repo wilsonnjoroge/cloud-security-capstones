@@ -2,26 +2,24 @@
 # Public ALB Security Group
 # -----------------------------------------------------------------------------
 
+# Looked up by name, not hardcoded — resolves to the correct prefix-list ID
+# for whatever account/region this runs in. This is what scopes public ALB
+# ingress to CloudFront's edge network only, instead of the open internet.
+data "aws_ec2_managed_prefix_list" "cloudfront" {
+  name = "com.amazonaws.global.cloudfront.origin-facing"
+}
+
 resource "aws_security_group" "public_alb" {
   name        = "${var.project_name}-public-alb-sg"
   description = "Security group for the internet-facing Application Load Balancer"
   vpc_id      = var.vpc_id
 
-  # CloudFront reaches the public ALB over HTTPS.
-  #
-  # The CloudFront managed prefix list is intentionally not hard-coded here
-  # because the exact prefix-list ID is region/account dependent. The edge
-  # module can provide the CloudFront-origin restriction when the ALB is built.
-  #
-  # HTTPS is exposed here because the final architecture requires TLS between
-  # CloudFront and the public ALB.
-
   ingress {
-    description = "HTTPS to public ALB"
-    protocol    = "tcp"
-    from_port   = 443
-    to_port     = 443
-    cidr_blocks = ["0.0.0.0/0"]
+    description     = "HTTPS from CloudFront edge network only"
+    protocol        = "tcp"
+    from_port       = 443
+    to_port         = 443
+    prefix_list_ids = [data.aws_ec2_managed_prefix_list.cloudfront.id]
   }
 
   egress {
@@ -39,6 +37,7 @@ resource "aws_security_group" "public_alb" {
     Role    = "public-alb"
   }
 }
+
 
 # -----------------------------------------------------------------------------
 # Web Tier Security Group
@@ -85,9 +84,6 @@ resource "aws_security_group" "internal_alb" {
   description = "Security group for the internal application load balancer"
   vpc_id      = var.vpc_id
 
-  # Only the web tier can reach the internal ALB.
-  # This prevents direct access to the application load balancer from the
-  # public network.
 
   ingress {
     description     = "HTTPS from web tier"
@@ -132,8 +128,6 @@ resource "aws_security_group" "app" {
     security_groups = [aws_security_group.internal_alb.id]
   }
 
-  # Database and cache access is restricted to the specific service ports.
-  # The actual destination SGs are referenced through dedicated rules below.
 
   egress {
     description = "HTTPS to AWS services and internal endpoints"
