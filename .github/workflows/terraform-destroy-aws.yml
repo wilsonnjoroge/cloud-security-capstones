@@ -1,0 +1,271 @@
+name: Terraform Destroy
+
+on:
+  workflow_dispatch:
+    inputs:
+      project:
+        description: 'Which project to destroy'
+        required: true
+        type: choice
+        options:
+          - vpc-lab
+
+      target_environment:
+        description: 'Which environment to destroy'
+        required: true
+        type: choice
+        options:
+          - dev
+          - uat
+          - preprod
+          - prod
+
+      confirm:
+        description: 'Type "destroy" to confirm. NB/: This is destructive and cannot be undone'
+        required: true
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+
+  # =====================================================================
+  # JOB 1: CREATE DESTROY PLAN
+  # =====================================================================
+  plan-destroy:
+    runs-on: ubuntu-latest
+
+    outputs:
+      project-dir: ${{ steps.project-dir.outputs.dir }}
+
+    steps:
+
+      - name: Validate typed confirmation
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          if [ "$CONFIRM" != "destroy" ]; then
+            echo "Confirmation text did not match 'destroy' exactly."
+            echo "Expected: destroy"
+            exit 1
+          fi
+
+          echo "Destroy confirmation accepted."
+
+      - name: Check out code
+        uses: actions/checkout@8ade135a41bc03ea155e62e844d188df1ea18608
+
+      - name: Map project input to working directory
+        id: project-dir
+        env:
+          PROJECT: ${{ inputs.project }}
+        run: |
+          case "$PROJECT" in
+            vpc-lab)
+              echo "dir=aws-provisions/labs/vpc-lab" >> "$GITHUB_OUTPUT"
+              ;;
+
+            *)
+              echo "Unknown project: $PROJECT"
+              exit 1
+              ;;
+          esac
+
+      - name: Configure AWS credentials (OIDC - plan)
+        uses: aws-actions/configure-aws-credentials@ff717079ee2060e4bcee96c4779b553acc87447c
+        with:
+          role-to-assume: arn:aws:iam::025066283316:role/github-actions-terraform-plan-workflow
+          aws-region: us-east-1
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
+
+      - name: Terraform Init
+        working-directory: ${{ steps.project-dir.outputs.dir }}
+        run: terraform init -input=false
+
+      - name: Terraform Plan (destroy)
+        working-directory: ${{ steps.project-dir.outputs.dir }}
+        run: |
+          terraform plan \
+            -destroy \
+            -no-color \
+            -input=false \
+            -out=tfplan-destroy
+        env:
+          TF_VAR_my_ip_cidr: ${{ secrets.TF_VAR_MY_IP_CIDR }}
+
+      - name: Generate destroy plan JSON
+        working-directory: ${{ steps.project-dir.outputs.dir }}
+        run: |
+          terraform show \
+            -json \
+            tfplan-destroy \
+            > tfplan-destroy.json
+
+      - name: Generate destroy plan summary
+        working-directory: ${{ steps.project-dir.outputs.dir }}
+        env:
+          TARGET_ENVIRONMENT: ${{ inputs.target_environment }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          plan_file = Path("tfplan-destroy.json")
+          output_file = Path("destroy-plan-summary.md")
+
+          data = json.loads(plan_file.read_text())
+
+          resource_changes = data.get("resource_changes", [])
+
+          destroy = []
+          create = []
+          update = []
+          replace = []
+          no_op = []
+
+          for resource in resource_changes:
+              address = resource.get("address", "unknown")
+              actions = resource.get("change", {}).get("actions", [])
+
+              if actions == ["delete"]:
+                  destroy.append(address)
+
+              elif actions == ["create"]:
+                  create.append(address)
+
+              elif actions == ["update"]:
+                  update.append(address)
+
+              elif set(actions) == {"create", "delete"}:
+                  replace.append(address)
+
+              elif actions == ["no-op"]:
+                  no_op.append(address)
+
+          lines = []
+
+          lines.append("# 🛑 Terraform Destroy Plan")
+          lines.append("")
+          lines.append(
+              f"**Project:** `{Path.cwd().name}`  "
+          )
+          lines.append(
+              f"**Environment:** `{os.environ['TARGET_ENVIRONMENT']}`"
+          )
+          lines.append("")
+          lines.append(
+              "> ⚠️ **This is a destructive operation. "
+              "The resources listed below are planned for destruction.**"
+          )
+          lines.append("")
+
+          lines.append("## Resources")
+          lines.append("")
+          lines.append("| Action | Resource |")
+          lines.append("|---|---|")
+
+          for address in destroy:
+              lines.append(f"| 🔴 Destroy | `{address}` |")
+
+          for address in replace:
+              lines.append(f"| 🟠 Replace | `{address}` |")
+
+          for address in create:
+              lines.append(f"| 🟢 Create | `{address}` |")
+
+          for address in update:
+              lines.append(f"| 🟡 Change | `{address}` |")
+
+          if not destroy and not replace and not create and not update:
+              lines.append("| ℹ️ No changes | No resource changes detected |")
+
+          lines.append("")
+          lines.append("## Summary")
+          lines.append("")
+          lines.append("| Create | Change | Replace | Destroy |")
+          lines.append("|---:|---:|---:|---:|")
+          lines.append(
+              f"| {len(create)} | "
+              f"{len(update)} | "
+              f"{len(replace)} | "
+              f"{len(destroy)} |"
+          )
+
+          lines.append("")
+
+          if destroy or replace:
+              lines.append(
+                  "> 🔐 **Approval is required before the destroy job can run.**"
+              )
+          else:
+              lines.append(
+                  "> ℹ️ **Terraform has no resources scheduled for destruction.**"
+              )
+
+          output_file.write_text("\n".join(lines))
+
+          print(output_file.read_text())
+          PY
+
+      - name: Add destroy plan to job summary
+        working-directory: ${{ steps.project-dir.outputs.dir }}
+        run: |
+          cat destroy-plan-summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload destroy plan
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: tfplan-destroy-${{ inputs.target_environment }}
+          path: |
+            ${{ steps.project-dir.outputs.dir }}/tfplan-destroy
+            ${{ steps.project-dir.outputs.dir }}/destroy-plan-summary.md
+          retention-days: 1
+
+
+  # =====================================================================
+  # JOB 2: APPROVED DESTROY
+  # =====================================================================
+  destroy:
+    needs: plan-destroy
+
+    runs-on: ubuntu-latest
+
+    environment:
+      name: ${{ inputs.target_environment }}
+
+    steps:
+
+      - name: Check out code
+        uses: actions/checkout@8ade135a41bc03ea155e62e844d188df1ea18608
+
+      - name: Download destroy plan artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: tfplan-destroy-${{ inputs.target_environment }}
+          path: ${{ needs.plan-destroy.outputs.project-dir }}
+
+      - name: Configure AWS credentials (OIDC - destroy)
+        uses: aws-actions/configure-aws-credentials@ff717079ee2060e4bcee96c4779b553acc87447c
+        with:
+          role-to-assume: arn:aws:iam::025066283316:role/github-actions-terraform-apply
+          aws-region: us-east-1
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
+
+      - name: Terraform Init
+        working-directory: ${{ needs.plan-destroy.outputs.project-dir }}
+        run: terraform init -input=false
+
+      - name: Terraform Destroy
+        working-directory: ${{ needs.plan-destroy.outputs.project-dir }}
+        run: |
+          terraform apply \
+            -input=false \
+            -auto-approve \
+            tfplan-destroy

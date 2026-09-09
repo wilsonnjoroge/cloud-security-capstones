@@ -1,0 +1,286 @@
+name: Terraform Apply
+
+on:
+  workflow_dispatch:
+    inputs:
+      project:
+        description: 'Which project to apply'
+        required: true
+        type: choice
+        options:
+          - vpc-lab
+
+      target_environment:
+        description: 'Which environment to deploy to'
+        required: true
+        type: choice
+        options:
+          - dev
+          - uat
+          - preprod
+          - prod
+
+permissions:
+  id-token: write   # required to request a GitHub OIDC token
+  contents: read
+
+jobs:
+
+  # ---------------------------------------------------------------------
+  # Job 1: runs immediately, unattended, no approval gate.
+  # ---------------------------------------------------------------------
+  plan-and-estimate:
+    runs-on: ubuntu-latest
+
+    outputs:
+      project-dir: ${{ steps.project-dir.outputs.dir }}
+
+    steps:
+
+      - name: Check out code
+        uses: actions/checkout@8ade135a41bc03ea155e62e844d188df1ea18608
+
+      - name: Map project input to working directory
+        id: project-dir
+        env:
+          PROJECT: ${{ inputs.project }}
+        run: |
+          case "$PROJECT" in
+            vpc-lab)
+              echo "dir=aws-provisions/labs/vpc-lab" >> "$GITHUB_OUTPUT"
+              ;;
+
+            *)
+              echo "Unknown project: $PROJECT"
+              exit 1
+              ;;
+          esac
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@ff717079ee2060e4bcee96c4779b553acc87447c
+        with:
+          role-to-assume: arn:aws:iam::025066283316:role/github-actions-terraform-plan-workflow
+          aws-region: us-east-1
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
+
+      - name: Terraform Init
+        working-directory: ${{ steps.project-dir.outputs.dir }}
+        run: terraform init -input=false
+
+      - name: Terraform Plan (fresh, against current real state)
+        id: plan
+        working-directory: ${{ steps.project-dir.outputs.dir }}
+        run: terraform plan -no-color -input=false -out=tfplan
+        env:
+          TF_VAR_my_ip_cidr: ${{ secrets.TF_VAR_MY_IP_CIDR }}
+
+      - name: Generate plan JSON
+        working-directory: ${{ steps.project-dir.outputs.dir }}
+        run: |
+          terraform show \
+            -json \
+            tfplan \
+            > tfplan.json
+
+      - name: Generate plan summary
+        working-directory: ${{ steps.project-dir.outputs.dir }}
+        env:
+          TARGET_ENVIRONMENT: ${{ inputs.target_environment }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          plan_file = Path("tfplan.json")
+          output_file = Path("terraform-plan-summary.md")
+
+          data = json.loads(plan_file.read_text())
+
+          resource_changes = data.get("resource_changes", [])
+
+          create = []
+          update = []
+          replace = []
+          destroy = []
+
+          for resource in resource_changes:
+              address = resource.get("address", "unknown")
+              actions = resource.get("change", {}).get("actions", [])
+
+              if actions == ["create"]:
+                  create.append(address)
+
+              elif actions == ["update"]:
+                  update.append(address)
+
+              elif actions == ["delete"]:
+                  destroy.append(address)
+
+              elif set(actions) == {"create", "delete"}:
+                  replace.append(address)
+
+          lines = []
+
+          lines.append("# Terraform Apply Plan")
+          lines.append("")
+          lines.append(f"**Project:** `{Path.cwd().name}`")
+          lines.append(
+              f"**Environment:** `{os.environ['TARGET_ENVIRONMENT']}`"
+          )
+          lines.append("")
+          lines.append(
+              "> ⚠️ **Review the planned infrastructure changes "
+              "before approving the apply job.**"
+          )
+          lines.append("")
+
+          lines.append("## Resources")
+          lines.append("")
+          lines.append("| Action | Resource |")
+          lines.append("|---|---|")
+
+          for address in create:
+              lines.append(f"| 🟢 Create | `{address}` |")
+
+          for address in update:
+              lines.append(f"| 🟡 Change | `{address}` |")
+
+          for address in replace:
+              lines.append(f"| 🟠 Replace | `{address}` |")
+
+          for address in destroy:
+              lines.append(f"| 🔴 Destroy | `{address}` |")
+
+          if not create and not update and not replace and not destroy:
+              lines.append(
+                  "| ℹ️ No changes | No resource changes detected |"
+              )
+
+          lines.append("")
+          lines.append("## Summary")
+          lines.append("")
+          lines.append("| Create | Change | Replace | Destroy |")
+          lines.append("|---:|---:|---:|---:|")
+          lines.append(
+              f"| {len(create)} | "
+              f"{len(update)} | "
+              f"{len(replace)} | "
+              f"{len(destroy)} |"
+          )
+          lines.append("")
+
+          if create or update or replace or destroy:
+              lines.append(
+                  "> 🔐 **Approval is required before Terraform Apply can run.**"
+              )
+          else:
+              lines.append(
+                  "> ℹ️ **Terraform has no resource changes to apply.**"
+              )
+
+          output_file.write_text("\n".join(lines))
+
+          print(output_file.read_text())
+          PY
+
+      - name: Add plan summary to job summary
+        working-directory: ${{ steps.project-dir.outputs.dir }}
+        run: |
+          cat terraform-plan-summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Show full plan in job log
+        working-directory: ${{ steps.project-dir.outputs.dir }}
+        run: terraform show -no-color tfplan
+
+      # -----------------------------------------------------------------
+      # Infracost provides the estimated cost of the Terraform plan.
+      # -----------------------------------------------------------------
+      - name: Set up Infracost
+        uses: infracost/actions/setup@e9d6e6cd65e168e76b0de50ff9957d2fe8bb1832
+        with:
+          api-key: ${{ secrets.INFRACOST_API_KEY }}
+
+      - name: Cost estimate
+        if: steps.plan.outcome == 'success'
+        working-directory: ${{ steps.project-dir.outputs.dir }}
+        env:
+          INFRACOST_API_KEY: ${{ secrets.INFRACOST_API_KEY }}
+        run: |
+          infracost breakdown \
+            --path=tfplan \
+            --format=table \
+            | tee infracost-summary.txt
+
+          {
+            echo ""
+            echo "## Infracost"
+            echo ""
+            echo '```text'
+            cat infracost-summary.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload plan as artifact for the apply job to consume
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: tfplan-${{ inputs.target_environment }}
+          path: |
+            ${{ steps.project-dir.outputs.dir }}/tfplan
+            ${{ steps.project-dir.outputs.dir }}/terraform-plan-summary.md
+          retention-days: 1
+
+  # ---------------------------------------------------------------------
+  # Job 2: Gated by GitHub Environment protection rules (required
+  # reviewers).
+  # ---------------------------------------------------------------------
+  apply:
+    needs: plan-and-estimate
+    runs-on: ubuntu-latest
+
+    environment: ${{ inputs.target_environment }}
+
+    steps:
+
+      - name: Check out code
+        uses: actions/checkout@8ade135a41bc03ea155e62e844d188df1ea18608
+
+      - name: Download plan artifact from plan-and-estimate
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: tfplan-${{ inputs.target_environment }}
+          path: ${{ needs.plan-and-estimate.outputs.project-dir }}
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@ff717079ee2060e4bcee96c4779b553acc87447c
+        with:
+          role-to-assume: arn:aws:iam::025066283316:role/github-actions-terraform-apply
+          aws-region: us-east-1
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
+
+      - name: Terraform Init
+        working-directory: ${{ needs.plan-and-estimate.outputs.project-dir }}
+        run: terraform init -input=false
+
+      # -----------------------------------------------------------------
+      # Apply consumes the exact tfplan generated in Job 1.
+      # Terraform does NOT recalculate a new plan here.
+      # -----------------------------------------------------------------
+      - name: Terraform Apply (applies the exact plan from job 1, nothing recomputed)
+        working-directory: ${{ needs.plan-and-estimate.outputs.project-dir }}
+        run: |
+          terraform apply \
+            -input=false \
+            -auto-approve \
+            tfplan
+
+      - name: Upload private key as artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ssh-key
+          path: ${{ needs.plan-and-estimate.outputs.project-dir }}/lab2-key.pem
+          retention-days: 1

@@ -1,0 +1,29 @@
+name: CodeQL
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  analyze:
+    name: CodeQL
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@8ade135a41bc03ea155e62e844d188df1ea18608
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@24ea975727876cf496b1eb0c5b36e96e01600b51
+        with:
+          languages: python
+          build-mode: none
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@24ea975727876cf496b1eb0c5b36e96e01600b51
+        with:
+          category: "/language:python"

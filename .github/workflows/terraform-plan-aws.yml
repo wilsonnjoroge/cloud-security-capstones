@@ -1,0 +1,202 @@
+name: Terraform Plan
+
+on:
+  pull_request:
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
+jobs:
+
+  plan:
+    name: plan
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        working-directory:
+          - aws-provisions/labs/vpc-lab
+
+    steps:
+
+      - name: Check out code
+        uses: actions/checkout@8ade135a41bc03ea155e62e844d188df1ea18608
+        with:
+          fetch-depth: 0
+
+      - name: Check for .tf changes in this project
+        id: tf-changes
+        run: |
+          BASE_REF="origin/${{ github.event.pull_request.base.ref }}"
+          DIR="${{ matrix.working-directory }}"
+
+          if git diff --name-only "$BASE_REF"...HEAD -- "$DIR" | grep -q '\.tf$'; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Configure AWS credentials (OIDC)
+        if: steps.tf-changes.outputs.changed == 'true'
+        uses: aws-actions/configure-aws-credentials@ff717079ee2060e4bcee96c4779b553acc87447c
+        with:
+          role-to-assume: arn:aws:iam::025066283316:role/github-actions-terraform-plan
+          aws-region: us-east-1
+
+      - name: Set up Terraform
+        if: steps.tf-changes.outputs.changed == 'true'
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
+
+      - name: Terraform Init
+        if: steps.tf-changes.outputs.changed == 'true'
+        working-directory: ${{ matrix.working-directory }}
+        run: terraform init -input=false
+
+      - name: Terraform Plan
+        if: steps.tf-changes.outputs.changed == 'true'
+        id: plan
+        working-directory: ${{ matrix.working-directory }}
+        run: |
+          terraform plan \
+            -no-color \
+            -input=false \
+            -out=tfplan
+        env:
+          TF_VAR_my_ip_cidr: ${{ secrets.TF_VAR_MY_IP_CIDR }}
+
+      # -----------------------------------------------------------------
+      # Convert the binary Terraform plan into JSON for structured
+      # resource-level analysis.
+      # -----------------------------------------------------------------
+      - name: Generate plan JSON
+        if: steps.tf-changes.outputs.changed == 'true'
+        working-directory: ${{ matrix.working-directory }}
+        run: |
+          terraform show \
+            -json \
+            tfplan \
+            > tfplan.json
+
+      # -----------------------------------------------------------------
+      # Generate a concise reviewer-friendly summary.
+      # -----------------------------------------------------------------
+      - name: Generate plan summary
+        if: steps.tf-changes.outputs.changed == 'true'
+        working-directory: ${{ matrix.working-directory }}
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          plan_file = Path("tfplan.json")
+          output_file = Path("terraform-plan-summary.md")
+
+          data = json.loads(plan_file.read_text())
+
+          resource_changes = data.get("resource_changes", [])
+
+          create = []
+          update = []
+          replace = []
+          destroy = []
+
+          for resource in resource_changes:
+              address = resource.get("address", "unknown")
+              actions = resource.get("change", {}).get("actions", [])
+
+              if actions == ["create"]:
+                  create.append(address)
+
+              elif actions == ["update"]:
+                  update.append(address)
+
+              elif actions == ["delete"]:
+                  destroy.append(address)
+
+              elif set(actions) == {"create", "delete"}:
+                  replace.append(address)
+
+          lines = []
+
+          lines.append("## Terraform Plan")
+          lines.append("")
+          lines.append(f"**Project:** `{Path.cwd().name}`")
+          lines.append("")
+          lines.append(
+              "> Review the planned infrastructure changes before merging."
+          )
+          lines.append("")
+
+          lines.append("### Resources")
+          lines.append("")
+          lines.append("| Action | Resource |")
+          lines.append("|---|---|")
+
+          for address in create:
+              lines.append(f"| 🟢 Create | `{address}` |")
+
+          for address in update:
+              lines.append(f"| 🟡 Change | `{address}` |")
+
+          for address in replace:
+              lines.append(f"| 🟠 Replace | `{address}` |")
+
+          for address in destroy:
+              lines.append(f"| 🔴 Destroy | `{address}` |")
+
+          if not create and not update and not replace and not destroy:
+              lines.append(
+                  "| ℹ️ No changes | No resource changes detected |"
+              )
+
+          lines.append("")
+          lines.append("### Summary")
+          lines.append("")
+          lines.append("| Create | Change | Replace | Destroy |")
+          lines.append("|---:|---:|---:|---:|")
+          lines.append(
+              f"| {len(create)} | "
+              f"{len(update)} | "
+              f"{len(replace)} | "
+              f"{len(destroy)} |"
+          )
+
+          output_file.write_text("\n".join(lines))
+
+          print(output_file.read_text())
+          PY
+
+      # -----------------------------------------------------------------
+      # Publish the summary to the PR as a reviewer-friendly comment.
+      # -----------------------------------------------------------------
+      - name: Comment plan summary on PR
+        if: steps.tf-changes.outputs.changed == 'true'
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+        env:
+          PLAN_SUMMARY_FILE: ${{ matrix.working-directory }}/terraform-plan-summary.md
+        with:
+          script: |
+            const fs = require('fs');
+
+            const output = fs.readFileSync(
+              process.env.PLAN_SUMMARY_FILE,
+              'utf8'
+            );
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            });
+
+      - name: Fail job if plan failed
+        if: steps.tf-changes.outputs.changed == 'true' && steps.plan.outcome == 'failure'
+        run: exit 1
+
+      - name: No Terraform changes -- nothing to plan
+        if: steps.tf-changes.outputs.changed == 'false'
+        run: |
+          echo "No .tf changes in ${{ matrix.working-directory }} -- skipping plan, reporting success."
