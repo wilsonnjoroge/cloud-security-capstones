@@ -21,7 +21,7 @@ jobs:
         uses: github/codeql-action/init@24ea975727876cf496b1eb0c5b36e96e01600b51
         with:
           languages: python
-          build-mode: none
+          build-mode: none 
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@24ea975727876cf496b1eb0c5b36e96e01600b51
