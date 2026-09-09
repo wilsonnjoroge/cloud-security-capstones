@@ -1,7 +1,3 @@
-# VPC Flow Logs — captures ACCEPT/REJECT traffic metadata for the
-# whole VPC, shipped to CloudWatch Logs. Addresses
-# aws-ec2-require-vpc-flow-logs-for-all-vpcs. See
-# docs/security/network-security.md for retention rationale.
 
 resource "aws_cloudwatch_log_group" "vpc_flow_logs" {
   name              = "/${var.project_name}/vpc-flow-logs"
@@ -53,10 +49,10 @@ resource "aws_iam_role_policy" "vpc_flow_logs" {
 
 resource "aws_flow_log" "capstone" {
   vpc_id               = var.vpc_id
-  traffic_type          = "ALL"
-  log_destination_type  = "cloud-watch-logs"
-  log_destination       = aws_cloudwatch_log_group.vpc_flow_logs.arn
-  iam_role_arn          = aws_iam_role.vpc_flow_logs.arn
+  traffic_type         = "ALL"
+  log_destination_type = "cloud-watch-logs"
+  log_destination      = aws_cloudwatch_log_group.vpc_flow_logs.arn
+  iam_role_arn         = aws_iam_role.vpc_flow_logs.arn
 
   tags = {
     Name    = "${var.project_name}-vpc-flow-log"
