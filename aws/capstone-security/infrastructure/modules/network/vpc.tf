@@ -26,7 +26,7 @@ resource "aws_internet_gateway" "capstone" {
 # Public subnets
 # -----------------------------------------------------------------------------
 # Public subnets are used for NAT Gateway placement.
-# Workload instances are not deployed directly into these subnets.
+# Workload instances are not deployed directly into these subnets. 
 
 resource "aws_subnet" "public" {
   count = length(var.availability_zones)
