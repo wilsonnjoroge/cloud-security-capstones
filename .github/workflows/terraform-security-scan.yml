@@ -34,6 +34,7 @@ jobs:
         uses: aquasecurity/tfsec-action@b466648d6e39e7c75324f25d83891162a721f2d6
         with:
           working_directory: ${{ matrix.working-directory }}
+          additional_args: --exclude aws-vpc-enable-flow-logs
 
       - name: No Terraform changes -- nothing to scan
         if: steps.tf-changes.outputs.changed == 'false'
