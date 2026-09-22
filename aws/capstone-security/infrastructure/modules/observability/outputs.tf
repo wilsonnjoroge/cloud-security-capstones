@@ -1,15 +1,14 @@
-
 output "flow_log_id" {
-  description = "ID of the VPC flow log."
-  value       = aws_flow_log.capstone.id
+  description = "VPC Flow Log ID."
+  value       = aws_flow_log.vpc.id
 }
 
-output "flow_log_group_name" {
-  description = "Name of the CloudWatch log group holding flow log data — reference this for dashboards/alarms/log-insights queries."
+output "flow_log_log_group_name" {
+  description = "CloudWatch Log Group receiving VPC Flow Logs."
   value       = aws_cloudwatch_log_group.vpc_flow_logs.name
 }
 
-output "flow_log_group_arn" {
-  description = "ARN of the flow logs CloudWatch log group."
-  value       = aws_cloudwatch_log_group.vpc_flow_logs.arn
+output "flow_log_delivery_role_arn" {
+  description = "VPC Flow Logs delivery role ARN."
+  value       = aws_iam_role.flow_logs.arn
 }
