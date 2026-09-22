@@ -65,7 +65,7 @@ resource "aws_vpc_security_group_ingress_rule" "public_alb_cloudfront_http" {
   from_port         = 80
   to_port           = 80
   ip_protocol       = "tcp"
-  prefix_list_id     = data.aws_ec2_managed_prefix_list.cloudfront_origin_facing.id
+  prefix_list_id    = data.aws_ec2_managed_prefix_list.cloudfront_origin_facing.id
 }
 
 # Public ALB -> web tier HTTPS.

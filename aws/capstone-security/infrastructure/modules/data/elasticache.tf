@@ -24,9 +24,9 @@ resource "aws_elasticache_replication_group" "this" {
   replication_group_id = "${var.project_name}-${var.environment}-redis"
   description          = "Private Redis data tier for the capstone."
 
-  engine         = "redis"
-  engine_version = "7.1"
-  node_type      = var.cache_node_type
+  engine             = "redis"
+  engine_version     = "7.1"
+  node_type          = var.cache_node_type
   num_cache_clusters = var.cache_num_nodes
 
   port = 6379
@@ -40,7 +40,7 @@ resource "aws_elasticache_replication_group" "this" {
   auth_token                 = random_password.redis_auth.result
 
   automatic_failover_enabled = true
-  multi_az_enabled            = true
+  multi_az_enabled           = true
 
   apply_immediately = true
 

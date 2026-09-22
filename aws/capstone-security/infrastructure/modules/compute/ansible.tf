@@ -85,18 +85,18 @@ resource "aws_iam_role_policy" "web_ansible" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Effect   = "Allow"
+      Effect = "Allow"
       Action = [
         "s3:GetObject"
       ]
       Resource = "${aws_s3_bucket.ansible.arn}/${var.ansible_bundle_key_prefix}*"
-    },
-    {
-      Effect = "Allow"
-      Action = [
-        "kms:Decrypt"
-      ]
-      Resource = var.ansible_kms_key_arn
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "kms:Decrypt"
+        ]
+        Resource = var.ansible_kms_key_arn
     }]
   })
 }
@@ -108,18 +108,18 @@ resource "aws_iam_role_policy" "app_ansible" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Effect   = "Allow"
+      Effect = "Allow"
       Action = [
         "s3:GetObject"
       ]
       Resource = "${aws_s3_bucket.ansible.arn}/${var.ansible_bundle_key_prefix}*"
-    },
-    {
-      Effect = "Allow"
-      Action = [
-        "kms:Decrypt"
-      ]
-      Resource = var.ansible_kms_key_arn
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "kms:Decrypt"
+        ]
+        Resource = var.ansible_kms_key_arn
     }]
   })
 }

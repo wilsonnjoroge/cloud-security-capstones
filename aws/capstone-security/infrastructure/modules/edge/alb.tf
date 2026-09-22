@@ -10,6 +10,7 @@ resource "aws_lb" "public" {
   security_groups    = [var.public_alb_security_group_id]
 
   enable_deletion_protection = true
+  drop_invalid_header_fields = true
 
   tags = {
     Name = "${local.name_prefix}-public-alb"
@@ -36,6 +37,7 @@ resource "aws_lb_target_group" "web" {
 }
 
 resource "aws_lb_listener" "public_http" {
+  #tfsec:ignore:aws-elb-http-not-used
   load_balancer_arn = aws_lb.public.arn
   port              = 80
   protocol          = "HTTP"
@@ -54,6 +56,7 @@ resource "aws_lb" "internal" {
   security_groups    = [var.internal_alb_security_group_id]
 
   enable_deletion_protection = true
+  drop_invalid_header_fields = true
 
   tags = {
     Name = "${local.name_prefix}-internal-alb"

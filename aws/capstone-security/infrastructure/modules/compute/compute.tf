@@ -22,7 +22,7 @@ resource "aws_launch_template" "web" {
 
   metadata_options {
     http_endpoint               = "enabled"
-    http_tokens                = "required"
+    http_tokens                 = "required"
     http_put_response_hop_limit = 1
   }
 
@@ -78,7 +78,7 @@ resource "aws_autoscaling_group" "web" {
 resource "aws_autoscaling_policy" "web_cpu" {
   name                   = "${local.name_prefix}-web-cpu-target"
   policy_type            = "TargetTrackingScaling"
-  autoscaling_group_name  = aws_autoscaling_group.web.name
+  autoscaling_group_name = aws_autoscaling_group.web.name
   target_tracking_configuration {
     predefined_metric_specification {
       predefined_metric_type = "ASGAverageCPUUtilization"
@@ -101,7 +101,7 @@ resource "aws_launch_template" "app" {
 
   metadata_options {
     http_endpoint               = "enabled"
-    http_tokens                = "required"
+    http_tokens                 = "required"
     http_put_response_hop_limit = 1
   }
 
@@ -155,8 +155,8 @@ resource "aws_autoscaling_group" "app" {
 }
 
 resource "aws_autoscaling_policy" "app_cpu" {
-  name                  = "${local.name_prefix}-app-cpu-target"
-  policy_type           = "TargetTrackingScaling"
+  name                   = "${local.name_prefix}-app-cpu-target"
+  policy_type            = "TargetTrackingScaling"
   autoscaling_group_name = aws_autoscaling_group.app.name
 
   target_tracking_configuration {

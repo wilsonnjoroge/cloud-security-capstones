@@ -27,7 +27,7 @@ resource "aws_flow_log" "vpc" {
 
 data "aws_iam_policy_document" "flow_logs_assume" {
   statement {
-    effect = "Allow"
+    effect  = "Allow"
     actions = ["sts:AssumeRole"]
 
     principals {
