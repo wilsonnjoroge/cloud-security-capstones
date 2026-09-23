@@ -8,6 +8,8 @@
 crash.log
 crash.*.log
 *plan
+*plan.binary
+*plan.json
 
 # Generated SSH keys
 *.pem
@@ -23,12 +25,7 @@ crash.*.log
 
 
 # Test Files
-aws-provisions/test-files/vpc-lab/semgrep-ci-py-test.py
-aws-provisions/test-files/vpc-lab/semgrep-ci-tf-test.tf
-aws-provisions/test-files/vpc-lab/semgrep-local-tf-test.tf
-
-# Security testing fixtures
-aws-provisions/tests/security/
 
 
-aws-provisions/reports_and_outputs/*.json
+# backups
+*.tar

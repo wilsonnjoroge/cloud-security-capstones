@@ -1,186 +1,82 @@
-# -----------------------------------------------------------------------------
-# EC2 Systems Manager IAM Role
-# -----------------------------------------------------------------------------
+data "aws_iam_policy_document" "ec2_assume_role" {
+  statement {
+    effect  = "Allow"
+    actions = ["sts:AssumeRole"]
 
-resource "aws_iam_role" "ec2_ssm" {
-  count = var.enable_ssm_instance_role ? 1 : 0
-
-  name = "${var.project_name}-ec2-ssm-role"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-
-    Statement = [
-      {
-        Sid    = "EC2AssumeRole"
-        Effect = "Allow"
-
-        Principal = {
-          Service = "ec2.amazonaws.com"
-        }
-
-        Action = "sts:AssumeRole"
-      }
-    ]
-  })
-
-  tags = {
-    Name    = "${var.project_name}-ec2-ssm-role"
-    Project = var.project_name
-    Purpose = "ec2-management"
+    principals {
+      type        = "Service"
+      identifiers = ["ec2.amazonaws.com"]
+    }
   }
 }
 
-# -----------------------------------------------------------------------------
-# AWS Systems Manager Core Permissions
-# -----------------------------------------------------------------------------
+resource "aws_iam_role" "web" {
+  name               = "${var.project_name}-${var.environment}-web-role"
+  assume_role_policy = data.aws_iam_policy_document.ec2_assume_role.json
 
-resource "aws_iam_role_policy_attachment" "ec2_ssm_core" {
-  count = var.enable_ssm_instance_role ? 1 : 0
+  tags = {
+    Name = "${var.project_name}-${var.environment}-web-role"
+  }
+}
 
-  role       = aws_iam_role.ec2_ssm[0].name
+resource "aws_iam_role_policy_attachment" "web_ssm" {
+  role       = aws_iam_role.web.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
-# -----------------------------------------------------------------------------
-# Ansible Bundle Access
-# -----------------------------------------------------------------------------
-# EC2 instances retrieve Ansible deployment/configuration bundles from the
-# dedicated S3 bucket.
-#
-# Access is restricted to the specific bucket rather than granting general
-# S3 permissions.
-
-resource "aws_iam_role_policy" "ansible_bundle_access" {
-  count = var.enable_ssm_instance_role ? 1 : 0
-
-  name = "${var.project_name}-ansible-bundle-access"
-  role = aws_iam_role.ec2_ssm[0].id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-
-    Statement = [
-      {
-        Sid    = "ListAnsibleBundleBucket"
-        Effect = "Allow"
-
-        Action = [
-          "s3:ListBucket"
-        ]
-
-        Resource = var.ansible_bundle_bucket_arn
-      },
-      {
-        Sid    = "ReadAnsibleBundles"
-        Effect = "Allow"
-
-        Action = [
-          "s3:GetObject"
-        ]
-
-        Resource = "${var.ansible_bundle_bucket_arn}/*"
-      }
-    ]
-  })
-}
-
-# -----------------------------------------------------------------------------
-# EC2 Instance Profile
-# -----------------------------------------------------------------------------
-
-resource "aws_iam_instance_profile" "ec2_ssm" {
-  count = var.enable_ssm_instance_role ? 1 : 0
-
-  name = "${var.project_name}-ec2-ssm-profile"
-  role = aws_iam_role.ec2_ssm[0].name
+resource "aws_iam_role" "app" {
+  name               = "${var.project_name}-${var.environment}-app-role"
+  assume_role_policy = data.aws_iam_policy_document.ec2_assume_role.json
 
   tags = {
-    Name    = "${var.project_name}-ec2-ssm-profile"
-    Project = var.project_name
-    Purpose = "ec2-instance-profile"
+    Name = "${var.project_name}-${var.environment}-app-role"
   }
 }
 
-# -----------------------------------------------------------------------------
-# Application Workload IAM Role
-# -----------------------------------------------------------------------------
-# This role is deliberately separate from the base SSM role.
-#
-# The application should receive only the permissions it actually requires.
-# Secrets Manager access is scoped to explicitly supplied secret ARNs.
+resource "aws_iam_role_policy_attachment" "app_ssm" {
+  role       = aws_iam_role.app.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
 
-resource "aws_iam_role" "application" {
-  name = "${var.project_name}-application-role"
+data "aws_region" "current" {}
+data "aws_caller_identity" "current" {}
+data "aws_partition" "current" {}
 
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
+locals {
+  app_db_secret_arn_pattern     = "arn:${data.aws_partition.current.partition}:secretsmanager:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:secret:${var.project_name}/${var.environment}/rds/app-svc-*"
+  redis_auth_secret_arn_pattern = "arn:${data.aws_partition.current.partition}:secretsmanager:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:secret:${var.project_name}/${var.environment}/elasticache/auth-*"
+}
 
-    Statement = [
-      {
-        Sid    = "EC2AssumeRole"
-        Effect = "Allow"
+# The application receives access only to its own DB credential and Redis AUTH
+# secret. The RDS master credential is deliberately excluded.
+data "aws_iam_policy_document" "app_secrets" {
+  statement {
+    sid       = "ReadApplicationSecrets"
+    effect    = "Allow"
+    actions   = ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"]
+    resources = [local.app_db_secret_arn_pattern, local.redis_auth_secret_arn_pattern]
+  }
 
-        Principal = {
-          Service = "ec2.amazonaws.com"
-        }
-
-        Action = "sts:AssumeRole"
-      }
-    ]
-  })
-
-  tags = {
-    Name    = "${var.project_name}-application-role"
-    Project = var.project_name
-    Purpose = "application-workload"
+  statement {
+    sid       = "DecryptApplicationSecrets"
+    effect    = "Allow"
+    actions   = ["kms:Decrypt"]
+    resources = [aws_kms_key.this["secrets"].arn]
   }
 }
 
-# -----------------------------------------------------------------------------
-# Application Secrets Manager Access
-# -----------------------------------------------------------------------------
-# No wildcard Secrets Manager access.
-#
-# The environment passes the exact secret ARNs that the application is
-# permitted to retrieve.
-
-resource "aws_iam_role_policy" "application_secrets" {
-  count = length(var.application_secret_arns) > 0 ? 1 : 0
-
-  name = "${var.project_name}-application-secrets"
-  role = aws_iam_role.application.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-
-    Statement = [
-      {
-        Sid    = "ReadApplicationSecrets"
-        Effect = "Allow"
-
-        Action = [
-          "secretsmanager:DescribeSecret",
-          "secretsmanager:GetSecretValue"
-        ]
-
-        Resource = var.application_secret_arns
-      }
-    ]
-  })
+resource "aws_iam_role_policy" "app_secrets" {
+  name   = "${var.project_name}-${var.environment}-app-secrets-read"
+  role   = aws_iam_role.app.id
+  policy = data.aws_iam_policy_document.app_secrets.json
 }
 
-# -----------------------------------------------------------------------------
-# Application Instance Profile
-# -----------------------------------------------------------------------------
+resource "aws_iam_instance_profile" "web" {
+  name = "${var.project_name}-${var.environment}-web-profile"
+  role = aws_iam_role.web.name
+}
 
-resource "aws_iam_instance_profile" "application" {
-  name = "${var.project_name}-application-profile"
-  role = aws_iam_role.application.name
-
-  tags = {
-    Name    = "${var.project_name}-application-profile"
-    Project = var.project_name
-    Purpose = "application-instance-profile"
-  }
+resource "aws_iam_instance_profile" "app" {
+  name = "${var.project_name}-${var.environment}-app-profile"
+  role = aws_iam_role.app.name
 }

@@ -1,46 +1,34 @@
-# -----------------------------------------------------------------------------
-# Web Tier Outputs
-# -----------------------------------------------------------------------------
-
-output "web_instance_ids" {
-  description = "IDs of web-tier EC2 instances."
-  value       = aws_instance.web[*].id
+output "web_launch_template_id" {
+  description = "Web launch template ID."
+  value       = aws_launch_template.web.id
 }
 
-output "web_private_ips" {
-  description = "Private IP addresses of web-tier EC2 instances."
-  value       = aws_instance.web[*].private_ip
+output "app_launch_template_id" {
+  description = "App launch template ID."
+  value       = aws_launch_template.app.id
 }
 
-output "web_instance_names" {
-  description = "Names of web-tier EC2 instances."
-  value       = aws_instance.web[*].tags["Name"]
+output "web_asg_name" {
+  description = "Web Auto Scaling Group name."
+  value       = aws_autoscaling_group.web.name
 }
 
-# -----------------------------------------------------------------------------
-# Application Tier Outputs
-# -----------------------------------------------------------------------------
-
-output "app_instance_ids" {
-  description = "IDs of application-tier EC2 instances."
-  value       = aws_instance.app[*].id
+output "app_asg_name" {
+  description = "App Auto Scaling Group name."
+  value       = aws_autoscaling_group.app.name
 }
 
-output "app_private_ips" {
-  description = "Private IP addresses of application-tier EC2 instances."
-  value       = aws_instance.app[*].private_ip
+output "ansible_bundle_bucket_name" {
+  description = "Private, versioned Ansible bundle bucket name."
+  value       = aws_s3_bucket.ansible.bucket
 }
 
-output "app_instance_names" {
-  description = "Names of application-tier EC2 instances."
-  value       = aws_instance.app[*].tags["Name"]
+output "ansible_bundle_bucket_arn" {
+  description = "Private, versioned Ansible bundle bucket ARN."
+  value       = aws_s3_bucket.ansible.arn
 }
 
-# -----------------------------------------------------------------------------
-# Ansible Outputs
-# -----------------------------------------------------------------------------
-
-output "ansible_inventory_path" {
-  description = "Path to the Terraform-generated Ansible inventory."
-  value       = local_file.ansible_inventory.filename
+output "ansible_ssm_document_name" {
+  description = "SSM document used for Ansible application."
+  value       = aws_ssm_document.apply_ansible.name
 }

@@ -1,0 +1,35 @@
+---
+- name: App tier hardening
+  hosts: all
+  become: true
+  vars:
+    internal_alb_cidr: "{{ app_alb_cidr }}"   # passed via ExtraVariables from the SSM association
+    app_port: "{{ app_listen_port | default('8080') }}"
+
+  tasks:
+    - name: Apply shared base hardening
+      ansible.builtin.include_tasks: base-tasks.yml
+
+    - name: Allow app port only from internal ALB
+      community.general.ufw:
+        rule: allow
+        port: "{{ app_port }}"
+        proto: tcp
+        src: "{{ internal_alb_cidr }}"
+
+    - name: Enable ufw
+      community.general.ufw:
+        state: enabled
+
+    - name: Create non-root app service user
+      ansible.builtin.user:
+        name: appsvc
+        system: true
+        shell: /usr/sbin/nologin
+        create_home: false
+
+  handlers:
+    - name: Restart sshd
+      ansible.builtin.systemd:
+        name: sshd
+        state: restarted

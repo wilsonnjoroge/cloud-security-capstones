@@ -1,0 +1,53 @@
+---
+# Shared base hardening tasks — included by web-tier.yml and app-tier.yml,
+# not run directly.
+
+- name: Disable password authentication
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^#?PasswordAuthentication'
+    line: 'PasswordAuthentication no'
+  notify: Restart sshd
+
+- name: Disable root login
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^#?PermitRootLogin'
+    line: 'PermitRootLogin no'
+  notify: Restart sshd
+
+- name: Install ufw
+  ansible.builtin.apt:
+    name: ufw
+    state: present
+    update_cache: true
+
+- name: Set ufw default deny incoming
+  community.general.ufw:
+    default: deny
+    direction: incoming
+
+- name: Set ufw default allow outgoing
+  community.general.ufw:
+    default: allow
+    direction: outgoing
+
+- name: Install amazon-cloudwatch-agent
+  ansible.builtin.apt:
+    deb: https://s3.amazonaws.com/amazoncloudwatch-agent/debian/amd64/latest/amazon-cloudwatch-agent.deb
+
+- name: Enable and start CloudWatch agent
+  ansible.builtin.systemd:
+    name: amazon-cloudwatch-agent
+    enabled: true
+    state: started
+
+- name: Install aide for file integrity monitoring
+  ansible.builtin.apt:
+    name: aide
+    state: present
+
+- name: Initialize aide database
+  ansible.builtin.command: aideinit
+  args:
+    creates: /var/lib/aide/aide.db
