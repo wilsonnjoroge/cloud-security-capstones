@@ -67,6 +67,7 @@ resource "aws_wafv2_web_acl" "this" {
   }
 }
 
+#tfsec:ignore:aws-cloudfront-use-secure-tls-policy
 resource "aws_cloudfront_distribution" "this" {
   enabled             = true
   is_ipv6_enabled     = true
@@ -82,6 +83,12 @@ resource "aws_cloudfront_distribution" "this" {
       origin_protocol_policy = "http-only"
       origin_ssl_protocols   = ["TLSv1.2"]
     }
+  }
+
+    logging_config {
+    include_cookies = false
+    bucket          = aws_s3_bucket.cloudfront_logs.bucket_domain_name
+    prefix          = "cf-logs/"
   }
 
   default_cache_behavior {
@@ -104,6 +111,7 @@ resource "aws_cloudfront_distribution" "this" {
 
   viewer_certificate {
     cloudfront_default_certificate = true
+    minimum_protocol_version       = "TLSv1.2_2021"
   }
 
   web_acl_id = aws_wafv2_web_acl.this.arn

@@ -10,6 +10,12 @@ resource "aws_s3_bucket" "ansible" {
   }
 }
 
+resource "aws_s3_bucket_logging" "ansible" {
+  bucket        = aws_s3_bucket.ansible.id
+  target_bucket = aws_s3_bucket.cloudfront_logs.id
+  target_prefix = "ansible-bucket-logs/"
+}
+
 data "aws_caller_identity" "current" {}
 
 resource "aws_s3_bucket_versioning" "ansible" {

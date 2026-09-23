@@ -97,6 +97,12 @@ resource "aws_db_instance" "this" {
 
   apply_immediately = true
 
+  iam_database_authentication_enabled = true
+
+  performance_insights_enabled = true
+
+  performance_insights_kms_key_id = aws_kms_key.rds.arn
+
   tags = {
     Name = "${var.project_name}-${var.environment}-mysql"
     Tier = "data"

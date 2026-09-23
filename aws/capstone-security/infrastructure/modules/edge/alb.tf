@@ -2,6 +2,7 @@ locals {
   name_prefix = coalesce(var.name_prefix, substr("${var.project_name}-${var.environment}", 0, 20))
 }
 
+#tfsec:ignore:aws-elb-alb-not-public -- edge ALB is intentionally public, fronted by CloudFront+WAF
 resource "aws_lb" "public" {
   name               = "${local.name_prefix}-public-alb"
   internal           = false
@@ -36,8 +37,8 @@ resource "aws_lb_target_group" "web" {
   }
 }
 
+#tfsec:ignore:aws-elb-http-not-used
 resource "aws_lb_listener" "public_http" {
-  #tfsec:ignore:aws-elb-http-not-used
   load_balancer_arn = aws_lb.public.arn
   port              = 80
   protocol          = "HTTP"
